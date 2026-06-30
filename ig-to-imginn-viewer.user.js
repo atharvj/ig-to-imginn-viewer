@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         IG Logged-Out Profile Viewer
-// @namespace    https://github.com/atharvj/ig-logged-out-profile-viewer
+// @name         IG to Imginn Viewer
+// @namespace    https://github.com/atharvj/ig-to-imginn-viewer
 // @version      0.4.5
-// @description  View public Instagram profiles, posts, and reels without logging in by opening them in Imginn with popup post browsing.
+// @description  Opens public Instagram links in Imginn and shows Imginn posts in a popup instead of leaving the profile page.
 // @author       Atharv Joshi
 // @license      MIT
 // @match        https://www.instagram.com/*
@@ -19,7 +19,7 @@
   "use strict";
 
   const VIEWER_ORIGIN = "https://imginn.com";
-  const SCRIPT_NAME = "IG Logged-Out Profile Viewer";
+  const SCRIPT_NAME = "IG to Imginn Viewer";
   const MODAL_ID = "igiv-post-modal";
   const STYLE_ID = "igiv-style";
   const FRAME_STYLE_ID = "igiv-frame-style";
