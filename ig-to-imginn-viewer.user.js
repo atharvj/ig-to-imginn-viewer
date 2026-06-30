@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         IG to Imginn Viewer
 // @namespace    https://github.com/atharvj/ig-to-imginn-viewer
-// @version      0.4.5
-// @description  Opens public Instagram links in Imginn and shows Imginn posts in a popup instead of leaving the profile page.
+// @version      0.4.6
+// @description  Opens public Instagram links in Imginn only when logged out, and shows Imginn posts in a popup without losing your place.
 // @author       Atharv Joshi
 // @license      MIT
 // @match        https://www.instagram.com/*
@@ -25,6 +25,8 @@
   const FRAME_STYLE_ID = "igiv-frame-style";
   const MODAL_OPEN_CLASS = "igiv-modal-open";
   const HIDDEN_CLASS = "igiv-hidden";
+  const INSTAGRAM_LOGIN_CHECK_TIMEOUT_MS = 5000;
+  const INSTAGRAM_LOGIN_CHECK_INTERVAL_MS = 250;
 
   const LOGIN_PATH_RE = /^\/accounts\/login\/?$/;
   const INSTAGRAM_POST_PATH_RE = /^\/p\/([^/?#]+)\/?$/;
@@ -181,6 +183,44 @@
     return target;
   }
 
+  function hasReadableInstagramAuthCookie() {
+    return /(?:^|;\s*)(?:ds_user_id|sessionid)=/.test(document.cookie || "");
+  }
+
+  function looksLoggedInToInstagram() {
+    if (hasReadableInstagramAuthCookie()) return true;
+    if (!document.body) return false;
+
+    return Boolean(
+      document.querySelector(
+        [
+          'a[href^="/direct"]',
+          'a[href*="/direct/inbox"]',
+          'a[href^="/accounts/activity"]',
+          'a[href^="/accounts/edit"]',
+          'a[href^="/accounts/logout"]',
+          '[aria-label="Home"]',
+          '[aria-label="Messenger"]',
+          '[aria-label="New post"]',
+        ].join(", ")
+      )
+    );
+  }
+
+  function looksLoggedOutToInstagram() {
+    if (!document.body) return false;
+
+    const usernameInput = document.querySelector('input[name="username"]');
+    const passwordInput = document.querySelector('input[name="password"]');
+    if (usernameInput && passwordInput) return true;
+
+    if (document.querySelector('form[action*="/accounts/login"]')) return true;
+
+    return Array.from(document.querySelectorAll('a[href*="/accounts/login"], button')).some((element) =>
+      /^(log in|sign up)$/i.test((element.textContent || "").trim())
+    );
+  }
+
   function imginnUrlForInstagramUrl(url) {
     const loginTarget = instagramUrlFromLoginRedirect(url);
     if (loginTarget) return imginnUrlForInstagramUrl(loginTarget);
@@ -215,6 +255,71 @@
     window.stop();
     window.location.replace(viewerUrl);
     console.info(`${SCRIPT_NAME}: redirected to ${viewerUrl}`);
+  }
+
+  function maybeRedirectLoggedOutInstagram() {
+    const currentUrl = parseUrl(window.location.href);
+    if (!currentUrl || !isInstagramHost(currentUrl.hostname)) return "stay";
+    if (!imginnUrlForInstagramUrl(currentUrl)) return "stay";
+    if (looksLoggedInToInstagram()) return "stay";
+
+    if (instagramUrlFromLoginRedirect(currentUrl) || looksLoggedOutToInstagram()) {
+      redirectInstagramToViewer();
+      return "redirected";
+    }
+
+    return "pending";
+  }
+
+  function installInstagramLoggedOutRedirect() {
+    const currentUrl = parseUrl(window.location.href);
+    if (!currentUrl || !isInstagramHost(currentUrl.hostname)) return;
+    if (!imginnUrlForInstagramUrl(currentUrl)) return;
+    if (hasReadableInstagramAuthCookie()) return;
+
+    let completed = false;
+    let intervalId = 0;
+    let observer = null;
+    const startedAt = Date.now();
+
+    const cleanup = () => {
+      completed = true;
+      window.clearInterval(intervalId);
+      if (observer) observer.disconnect();
+    };
+
+    const check = () => {
+      if (completed) return;
+
+      const decision = maybeRedirectLoggedOutInstagram();
+      if (decision === "redirected" || decision === "stay") {
+        cleanup();
+        return;
+      }
+
+      if (Date.now() - startedAt >= INSTAGRAM_LOGIN_CHECK_TIMEOUT_MS) {
+        if (!looksLoggedInToInstagram()) {
+          cleanup();
+          redirectInstagramToViewer();
+          return;
+        }
+
+        cleanup();
+      }
+    };
+
+    intervalId = window.setInterval(check, INSTAGRAM_LOGIN_CHECK_INTERVAL_MS);
+
+    if (document.documentElement) {
+      observer = new MutationObserver(check);
+      observer.observe(document.documentElement, {
+        childList: true,
+        subtree: true,
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", check, { once: true });
+    check();
   }
 
   function onReady(callback) {
@@ -1109,7 +1214,7 @@
   if (!currentUrl) return;
 
   if (isInstagramHost(currentUrl.hostname)) {
-    redirectInstagramToViewer();
+    installInstagramLoggedOutRedirect();
     return;
   }
 

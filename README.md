@@ -1,10 +1,11 @@
 # IG to Imginn Viewer
 
-Tampermonkey userscript that redirects public Instagram profile, post, and reel links to Imginn, then opens Imginn posts in a popup so profile browsing does not lose your place.
+Tampermonkey userscript that leaves Instagram alone when you are logged in, but redirects public Instagram profile, post, and reel links to Imginn when you are logged out or hit a login gate.
 
 ## Features
 
-- Redirects public Instagram profile/post/reel URLs to Imginn.
+- Lets Instagram work normally when you are logged in.
+- Redirects public Instagram profile/post/reel URLs to Imginn when logged out.
 - Handles Instagram login redirect URLs with `next=` by sending the public target to Imginn.
 - Opens Imginn post/reel links in an in-page popup.
 - Tries multiple Imginn post URL shapes when a post detail page is flaky.
