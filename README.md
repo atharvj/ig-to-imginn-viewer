@@ -13,7 +13,7 @@ Tampermonkey userscript that redirects public Instagram profile, post, and reel 
 ## Install
 
 1. Install Tampermonkey or another userscript manager.
-2. Open `ig-to-imginn-viewer.user.js`.
+2. Open the raw userscript URL: <https://raw.githubusercontent.com/atharvj/ig-to-imginn-viewer/main/ig-to-imginn-viewer.user.js>
 3. Add it to your userscript manager.
 
 ## Notes

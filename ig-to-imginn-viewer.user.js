@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         IG to Imginn Viewer
-// @namespace    https://greasyfork.org/users/your-profile
+// @namespace    https://github.com/atharvj/ig-to-imginn-viewer
 // @version      0.4.5
 // @description  Opens public Instagram links in Imginn and shows Imginn posts in a popup instead of leaving the profile page.
-// @author       You
+// @author       Atharv Joshi
 // @license      MIT
 // @match        https://www.instagram.com/*
 // @match        https://instagram.com/*
