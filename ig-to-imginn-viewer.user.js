@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IG to Imginn Viewer
 // @namespace    https://github.com/atharvj/ig-to-imginn-viewer
-// @version      0.4.6
+// @version      0.4.7
 // @description  Opens public Instagram links in Imginn only when logged out, and shows Imginn posts in a popup without losing your place.
 // @author       Atharv Joshi
 // @license      MIT
@@ -816,8 +816,54 @@
     });
   }
 
-  function findPostGridContainer() {
-    const firstPostLink = viewerPostLinksIn(document).find((link) => visibleRect(link));
+  function largeMediaElementsIn(element, minimumTop) {
+    return Array.from(element.querySelectorAll("img, video")).filter((media) => {
+      if (media.closest(`#${MODAL_ID}`)) return false;
+
+      const rect = visibleRect(media);
+      return Boolean(rect && rect.top > minimumTop && rect.width >= 120 && rect.height >= 120);
+    });
+  }
+
+  function mediaCountIn(element, minimumTop) {
+    return largeMediaElementsIn(element, minimumTop).length;
+  }
+
+  function findFirstPostMedia(minimumTop) {
+    return largeMediaElementsIn(document.body, minimumTop).sort((a, b) => {
+      const aRect = a.getBoundingClientRect();
+      const bRect = b.getBoundingClientRect();
+      return aRect.top - bRect.top || aRect.left - bRect.left;
+    })[0] || null;
+  }
+
+  function findPostGridContainer(minimumTop) {
+    const firstMedia = findFirstPostMedia(minimumTop);
+    if (firstMedia) {
+      const mediaRect = visibleRect(firstMedia);
+      let candidate = firstMedia.closest("a[href]") || firstMedia;
+      let bestCandidate = null;
+
+      while (candidate && candidate !== document.body && candidate.nodeType === Node.ELEMENT_NODE) {
+        const rect = visibleRect(candidate);
+        const count = mediaCountIn(candidate, minimumTop);
+
+        if (rect && mediaRect && count >= 3 && rect.width >= 300 && mediaRect.top - rect.top <= 260) {
+          bestCandidate = candidate;
+        }
+
+        candidate = candidate.parentElement;
+      }
+
+      if (bestCandidate) return bestCandidate;
+
+      if (!bestCandidate && mediaCountIn(document.body, minimumTop) < 3) return null;
+    }
+
+    const firstPostLink = viewerPostLinksIn(document).find((link) => {
+      const rect = visibleRect(link);
+      return Boolean(rect && rect.top > minimumTop);
+    });
     if (!firstPostLink) return null;
 
     let node = firstPostLink;
@@ -825,7 +871,7 @@
       const postLinkCount = viewerPostLinksIn(node).length;
       const rect = visibleRect(node);
 
-      if (rect && postLinkCount >= 3) {
+      if (rect && rect.top > minimumTop && postLinkCount >= 3) {
         return node;
       }
 
@@ -833,6 +879,17 @@
     }
 
     return null;
+  }
+
+  function firstPostMediaTop(grid, minimumTop) {
+    const media = largeMediaElementsIn(grid, minimumTop).sort((a, b) => {
+      const aRect = a.getBoundingClientRect();
+      const bRect = b.getBoundingClientRect();
+      return aRect.top - bRect.top || aRect.left - bRect.left;
+    })[0];
+    const rect = media ? visibleRect(media) : visibleRect(grid);
+
+    return rect ? rect.top : 0;
   }
 
   function hideFloatingDownloadAll(gridTop) {
@@ -902,6 +959,22 @@
     }
   }
 
+  function hideTallBlankBlocksBetween(startTop, endTop) {
+    for (const element of document.body.querySelectorAll("div, section, aside")) {
+      if (element.id === MODAL_ID || element.closest(`#${MODAL_ID}`)) continue;
+      if (element.querySelector("img, video, picture, input, textarea, select")) continue;
+
+      const rect = visibleRect(element);
+      if (!rect || rect.height < 90 || rect.width < 240) continue;
+      if (rect.top < startTop - 8 || rect.bottom > endTop + 8) continue;
+
+      const text = normalizedText(element);
+      if (text.length > 60) continue;
+
+      element.dataset.igivHiddenSpacer = "true";
+    }
+  }
+
   function bottomOfProfileControlsBefore(gridTop) {
     const controlPatterns = [/share\s*to/i, /posts\s+stories\s+reels\s+tagged/i, /posts\s+stories\s+reels/i];
     let bestBottom = 0;
@@ -947,7 +1020,10 @@
     document.documentElement.dataset.igivViewerPage = "true";
     hideShareAndDownloadRows();
 
-    const grid = findPostGridContainer();
+    const pageTabsBottom = bottomOfPostTabsBefore(Number.POSITIVE_INFINITY);
+    const profileControlsBottom = bottomOfProfileControlsBefore(Number.POSITIVE_INFINITY);
+    const minimumTop = pageTabsBottom || profileControlsBottom || 0;
+    const grid = findPostGridContainer(minimumTop);
     if (!grid) return;
 
     grid.style.removeProperty("margin-top");
@@ -956,20 +1032,23 @@
     const originalGridRect = visibleRect(grid);
     if (!originalGridRect) return;
 
-    hideFloatingDownloadAll(originalGridRect.top);
-    hideEmptySpacersBeforeGrid(originalGridRect.top);
+    const originalMediaTop = firstPostMediaTop(grid, minimumTop) || originalGridRect.top;
+    hideFloatingDownloadAll(originalMediaTop);
+    hideEmptySpacersBeforeGrid(originalMediaTop);
+    hideTallBlankBlocksBetween(minimumTop, originalMediaTop);
     hideShareAndDownloadRows();
 
     window.requestAnimationFrame(() => {
       const gridRect = visibleRect(grid);
       if (!gridRect) return;
 
-      const tabsBottom = bottomOfPostTabsBefore(gridRect.top);
-      const controlsBottom = tabsBottom || bottomOfProfileControlsBefore(gridRect.top);
+      const mediaTop = firstPostMediaTop(grid, minimumTop) || gridRect.top;
+      const tabsBottom = bottomOfPostTabsBefore(mediaTop);
+      const controlsBottom = tabsBottom || bottomOfProfileControlsBefore(mediaTop);
       if (!controlsBottom) return;
 
-      const desiredGap = 8;
-      const currentGap = gridRect.top - controlsBottom;
+      const desiredGap = 12;
+      const currentGap = mediaTop - controlsBottom;
       if (currentGap <= desiredGap) return;
 
       const maxPullUp = Math.max(
@@ -980,18 +1059,19 @@
       );
       let pullUpBy = Math.min(currentGap - desiredGap, maxPullUp);
       grid.style.setProperty("position", "relative", "important");
-      grid.style.setProperty("transform", `translateY(-${Math.round(pullUpBy)}px)`, "important");
+      grid.style.setProperty("margin-top", `-${Math.round(pullUpBy)}px`, "important");
+      grid.style.setProperty("transform", "translateY(0)", "important");
       grid.dataset.igivCompacted = "true";
 
       window.requestAnimationFrame(() => {
-        const movedGridRect = visibleRect(grid);
-        if (!movedGridRect) return;
+        const movedMediaTop = firstPostMediaTop(grid, minimumTop);
+        if (!movedMediaTop) return;
 
         const anchorBottom = controlsBottom;
-        const remainingGap = movedGridRect.top - anchorBottom;
+        const remainingGap = movedMediaTop - anchorBottom;
         if (remainingGap <= desiredGap) return;
 
-        pullUpBy = Math.min(pullUpBy + remainingGap - desiredGap, maxPullUp);
+        pullUpBy = Math.min(remainingGap - desiredGap, maxPullUp);
         grid.style.setProperty("transform", `translateY(-${Math.round(pullUpBy)}px)`, "important");
       });
     });
@@ -1199,7 +1279,19 @@
         subtree: true,
       });
 
+      document.addEventListener("load", schedule, true);
+      window.addEventListener("load", schedule, { once: true });
       window.addEventListener("resize", schedule, { passive: true });
+
+      let retries = 0;
+      const retryTimer = window.setInterval(() => {
+        retries += 1;
+        schedule();
+
+        if (retries >= 30 || document.querySelector("[data-igiv-compacted='true']")) {
+          window.clearInterval(retryTimer);
+        }
+      }, 500);
     });
   }
 
