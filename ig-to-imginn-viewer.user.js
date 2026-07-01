@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IG to Imginn Viewer
 // @namespace    https://github.com/atharvj/ig-to-imginn-viewer
-// @version      0.4.7
+// @version      0.4.14
 // @description  Opens public Instagram links in Imginn only when logged out, and shows Imginn posts in a popup without losing your place.
 // @author       Atharv Joshi
 // @license      MIT
@@ -25,6 +25,14 @@
   const FRAME_STYLE_ID = "igiv-frame-style";
   const MODAL_OPEN_CLASS = "igiv-modal-open";
   const HIDDEN_CLASS = "igiv-hidden";
+  const VIEWER_AD_SELECTOR = [
+    "ins.adsbygoogle",
+    'iframe[id^="aswift_"]',
+    'iframe[src*="googlesyndication"]',
+    'iframe[src*="doubleclick"]',
+    '[id*="google_ads"]',
+    '[class*="adsbygoogle"]',
+  ].join(", ");
   const INSTAGRAM_LOGIN_CHECK_TIMEOUT_MS = 5000;
   const INSTAGRAM_LOGIN_CHECK_INTERVAL_MS = 250;
 
@@ -356,6 +364,18 @@
         margin: 0 !important;
         min-height: 0 !important;
         padding: 0 !important;
+      }
+
+      html[data-igiv-viewer-page="true"] [data-igiv-hidden-spacer="true"][data-igiv-protected-tabs="true"] {
+        display: revert !important;
+        height: auto !important;
+        margin-left: revert !important;
+        margin-right: revert !important;
+        min-height: revert !important;
+        opacity: 1 !important;
+        overflow: visible !important;
+        padding: revert !important;
+        visibility: visible !important;
       }
 
       .${HIDDEN_CLASS} {
@@ -829,6 +849,31 @@
     return largeMediaElementsIn(element, minimumTop).length;
   }
 
+  function distinctMediaColumnCount(element, minimumTop) {
+    const columns = [];
+
+    for (const media of largeMediaElementsIn(element, minimumTop)) {
+      const rect = media.getBoundingClientRect();
+      if (!columns.some((left) => Math.abs(left - rect.left) < 40)) {
+        columns.push(rect.left);
+      }
+    }
+
+    return columns.length;
+  }
+
+  function isPostGridCandidate(element, minimumTop) {
+    const rect = visibleRect(element);
+    if (!rect || rect.width < 300) return false;
+    if (rect.top < minimumTop - 12) return false;
+    if (isProtectedProfileTabsArea(element)) return false;
+
+    const count = mediaCountIn(element, minimumTop);
+    if (count < 3) return false;
+
+    return window.innerWidth < 760 || rect.width >= 640 || distinctMediaColumnCount(element, minimumTop) >= 2;
+  }
+
   function findFirstPostMedia(minimumTop) {
     return largeMediaElementsIn(document.body, minimumTop).sort((a, b) => {
       const aRect = a.getBoundingClientRect();
@@ -842,22 +887,16 @@
     if (firstMedia) {
       const mediaRect = visibleRect(firstMedia);
       let candidate = firstMedia.closest("a[href]") || firstMedia;
-      let bestCandidate = null;
 
       while (candidate && candidate !== document.body && candidate.nodeType === Node.ELEMENT_NODE) {
-        const rect = visibleRect(candidate);
-        const count = mediaCountIn(candidate, minimumTop);
-
-        if (rect && mediaRect && count >= 3 && rect.width >= 300 && mediaRect.top - rect.top <= 260) {
-          bestCandidate = candidate;
+        if (mediaRect && isPostGridCandidate(candidate, minimumTop)) {
+          return candidate;
         }
 
         candidate = candidate.parentElement;
       }
 
-      if (bestCandidate) return bestCandidate;
-
-      if (!bestCandidate && mediaCountIn(document.body, minimumTop) < 3) return null;
+      if (mediaCountIn(document.body, minimumTop) < 3) return null;
     }
 
     const firstPostLink = viewerPostLinksIn(document).find((link) => {
@@ -871,7 +910,7 @@
       const postLinkCount = viewerPostLinksIn(node).length;
       const rect = visibleRect(node);
 
-      if (rect && rect.top > minimumTop && postLinkCount >= 3) {
+      if (rect && rect.top > minimumTop && postLinkCount >= 3 && !isProtectedProfileTabsArea(node)) {
         return node;
       }
 
@@ -908,6 +947,45 @@
     return (element.textContent || "").trim().replace(/\s+/g, " ");
   }
 
+  function isViewerProfileTabsText(text) {
+    return /posts/i.test(text) && /stories/i.test(text) && /reels/i.test(text);
+  }
+
+  function isViewerProfileTabsElement(element) {
+    return Boolean(element && isViewerProfileTabsText(normalizedText(element)));
+  }
+
+  function restoreProfileTabs() {
+    for (const element of document.body.querySelectorAll("[data-igiv-protected-tabs='true']")) {
+      delete element.dataset.igivProtectedTabs;
+    }
+
+    for (const element of document.body.querySelectorAll("div, section, nav, ul")) {
+      if (!isViewerProfileTabsElement(element)) continue;
+
+      let node = element;
+      let depth = 0;
+      while (node && node !== document.body && node.nodeType === Node.ELEMENT_NODE && depth < 4) {
+        const rect = visibleRect(node);
+        if (rect && rect.height > 240) break;
+
+        delete node.dataset.igivHiddenSpacer;
+        node.dataset.igivProtectedTabs = "true";
+        node = node.parentElement;
+        depth += 1;
+      }
+    }
+  }
+
+  function isProtectedProfileTabsArea(element) {
+    return Boolean(
+      element &&
+        (element.dataset.igivProtectedTabs === "true" ||
+          element.querySelector("[data-igiv-protected-tabs='true']") ||
+          isViewerProfileTabsElement(element))
+    );
+  }
+
   function hideCompactTextBlock(element) {
     const initialText = normalizedText(element);
     let target = element;
@@ -923,6 +1001,7 @@
       parent = parent.parentElement;
     }
 
+    if (isProtectedProfileTabsArea(target)) return;
     target.dataset.igivHiddenSpacer = "true";
   }
 
@@ -932,6 +1011,7 @@
 
       const text = normalizedText(element);
       if (!text) continue;
+      if (isViewerProfileTabsText(text)) continue;
 
       if (/share\s*to\s*:/i.test(text) && /twitter|reddit|line|snap/i.test(text)) {
         hideCompactTextBlock(element);
@@ -947,21 +1027,55 @@
   function hideEmptySpacersBeforeGrid(gridTop) {
     for (const element of document.body.querySelectorAll("div, section, aside")) {
       if (element.id === MODAL_ID || element.closest(`#${MODAL_ID}`)) continue;
+      if (isProtectedProfileTabsArea(element)) continue;
       if (element.querySelector("img, video, picture, input, textarea, select")) continue;
 
       const rect = visibleRect(element);
       if (!rect || rect.bottom > gridTop || rect.height < 96 || rect.width < 240) continue;
 
       const text = (element.textContent || "").trim().replace(/\s+/g, " ");
+      if (isViewerProfileTabsText(text)) continue;
       if (text.length > 40) continue;
 
       element.dataset.igivHiddenSpacer = "true";
     }
   }
 
+  function hideAdContainers() {
+    for (const ad of document.body.querySelectorAll(VIEWER_AD_SELECTOR)) {
+      let target = ad;
+      let parent = ad.parentElement;
+
+      while (parent && parent !== document.body) {
+        const rect = visibleRect(parent);
+        const text = normalizedText(parent);
+
+        if (
+          !rect ||
+          rect.height > Math.max(window.innerHeight * 1.2, 900) ||
+          text.length > 80 ||
+          isViewerProfileTabsText(text) ||
+          isProtectedProfileTabsArea(parent) ||
+          parent.querySelector("img, video, picture, input, textarea, select")
+        ) {
+          break;
+        }
+
+        target = parent;
+        parent = parent.parentElement;
+      }
+
+      if (target && target.nodeType === Node.ELEMENT_NODE) {
+        if (isProtectedProfileTabsArea(target)) continue;
+        target.dataset.igivHiddenSpacer = "true";
+      }
+    }
+  }
+
   function hideTallBlankBlocksBetween(startTop, endTop) {
     for (const element of document.body.querySelectorAll("div, section, aside")) {
       if (element.id === MODAL_ID || element.closest(`#${MODAL_ID}`)) continue;
+      if (isProtectedProfileTabsArea(element)) continue;
       if (element.querySelector("img, video, picture, input, textarea, select")) continue;
 
       const rect = visibleRect(element);
@@ -969,6 +1083,7 @@
       if (rect.top < startTop - 8 || rect.bottom > endTop + 8) continue;
 
       const text = normalizedText(element);
+      if (isViewerProfileTabsText(text)) continue;
       if (text.length > 60) continue;
 
       element.dataset.igivHiddenSpacer = "true";
@@ -1006,7 +1121,7 @@
       if (!rect || rect.top >= gridTop || rect.height > 120 || rect.width < 240) continue;
 
       const text = normalizedText(element);
-      if (/posts\s+stories\s+reels\s+tagged/i.test(text) || /posts\s+stories\s+reels/i.test(text)) {
+      if (isViewerProfileTabsText(text)) {
         bestBottom = Math.max(bestBottom, rect.bottom);
       }
     }
@@ -1018,11 +1133,15 @@
     if (!isViewerProfileUrl(parseUrl(window.location.href))) return;
 
     document.documentElement.dataset.igivViewerPage = "true";
+    restoreProfileTabs();
+    hideAdContainers();
     hideShareAndDownloadRows();
 
     const pageTabsBottom = bottomOfPostTabsBefore(Number.POSITIVE_INFINITY);
     const profileControlsBottom = bottomOfProfileControlsBefore(Number.POSITIVE_INFINITY);
     const minimumTop = pageTabsBottom || profileControlsBottom || 0;
+    if (!pageTabsBottom) return;
+
     const grid = findPostGridContainer(minimumTop);
     if (!grid) return;
 
@@ -1036,45 +1155,8 @@
     hideFloatingDownloadAll(originalMediaTop);
     hideEmptySpacersBeforeGrid(originalMediaTop);
     hideTallBlankBlocksBetween(minimumTop, originalMediaTop);
+    hideAdContainers();
     hideShareAndDownloadRows();
-
-    window.requestAnimationFrame(() => {
-      const gridRect = visibleRect(grid);
-      if (!gridRect) return;
-
-      const mediaTop = firstPostMediaTop(grid, minimumTop) || gridRect.top;
-      const tabsBottom = bottomOfPostTabsBefore(mediaTop);
-      const controlsBottom = tabsBottom || bottomOfProfileControlsBefore(mediaTop);
-      if (!controlsBottom) return;
-
-      const desiredGap = 12;
-      const currentGap = mediaTop - controlsBottom;
-      if (currentGap <= desiredGap) return;
-
-      const maxPullUp = Math.max(
-        document.documentElement.scrollHeight,
-        document.body.scrollHeight,
-        window.innerHeight * 6,
-        6000
-      );
-      let pullUpBy = Math.min(currentGap - desiredGap, maxPullUp);
-      grid.style.setProperty("position", "relative", "important");
-      grid.style.setProperty("margin-top", `-${Math.round(pullUpBy)}px`, "important");
-      grid.style.setProperty("transform", "translateY(0)", "important");
-      grid.dataset.igivCompacted = "true";
-
-      window.requestAnimationFrame(() => {
-        const movedMediaTop = firstPostMediaTop(grid, minimumTop);
-        if (!movedMediaTop) return;
-
-        const anchorBottom = controlsBottom;
-        const remainingGap = movedMediaTop - anchorBottom;
-        if (remainingGap <= desiredGap) return;
-
-        pullUpBy = Math.min(remainingGap - desiredGap, maxPullUp);
-        grid.style.setProperty("transform", `translateY(-${Math.round(pullUpBy)}px)`, "important");
-      });
-    });
   }
 
   function handleFrameLoad() {
@@ -1298,7 +1380,6 @@
   function installViewerModal() {
     document.addEventListener("click", handleViewerClick, true);
     document.addEventListener("keydown", handleKeydown, true);
-    installProfileCompactor();
     console.info(`${SCRIPT_NAME}: Imginn popup mode is active.`);
   }
 
