@@ -14,8 +14,8 @@ Tampermonkey userscript that leaves Instagram alone when you are logged in, but 
 ## Install
 
 1. Install Tampermonkey or another userscript manager.
-2. Open the raw userscript URL: <https://raw.githubusercontent.com/atharvj/ig-to-imginn-viewer/main/ig-to-imginn-viewer.user.js>
-3. Add it to your userscript manager.
+2. Open the [installation page](https://greasyfork.org/en/scripts/584998-ig-logged-out-profile-viewer) on GreasyFork
+3. Press install
 
 ## Notes
 
