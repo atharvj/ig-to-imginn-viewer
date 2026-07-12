@@ -1,4 +1,4 @@
-# IG to Imginn Viewer
+# IG Logged-Out Profile Viewer
 
 Tampermonkey userscript that leaves Instagram alone when you are logged in, but redirects public Instagram profile, post, and reel links to Imginn when you are logged out or hit a login gate.
 
@@ -14,8 +14,8 @@ Tampermonkey userscript that leaves Instagram alone when you are logged in, but 
 ## Install
 
 1. Install Tampermonkey or another userscript manager.
-2. Open the [installation page](https://greasyfork.org/en/scripts/584998-ig-logged-out-profile-viewer) on GreasyFork
-3. Press install
+2. Open the [installation page](https://greasyfork.org/en/scripts/584998-ig-logged-out-profile-viewer) on Greasy Fork.
+3. Press **Install this script**.
 
 ## Notes
 
