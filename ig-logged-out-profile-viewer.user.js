@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         IG Logged-Out Profile Viewer
 // @namespace    https://github.com/atharvj/ig-logged-out-profile-viewer
-// @version      0.5.0
+// @version      0.5.1
 // @description  Opens public Instagram links in Imginn only when logged out, and shows Imginn posts in a popup without losing your place.
 // @author       Atharv Joshi
 // @license      MIT
@@ -41,6 +41,7 @@
   const INSTAGRAM_REEL_PATH_RE = /^\/reel\/([^/?#]+)\/?$/;
   const INSTAGRAM_TV_PATH_RE = /^\/tv\/([^/?#]+)\/?$/;
   const PROFILE_PATH_RE = /^\/([A-Za-z0-9._]{1,30})(?:\/(reels|tagged|channel|guides))?\/?$/;
+  const VIEWER_PROFILE_TAB_PATH_RE = /^\/(?:stories|reels|tagged)\/([A-Za-z0-9._]{1,30})\/?$/;
   const VIEWER_POST_PATH_RE = /^\/(?:([A-Za-z0-9._]{1,30})\/)?(p|reel|tv)\/([^/?#]+)\/?$/;
 
   const RESERVED_PROFILE_SEGMENTS = new Set([
@@ -103,6 +104,9 @@
   }
 
   function viewerProfileUsernameFromPath(pathname) {
+    const tabMatch = pathname.match(VIEWER_PROFILE_TAB_PATH_RE);
+    if (tabMatch) return tabMatch[1];
+
     const match = pathname.match(PROFILE_PATH_RE);
     if (!match || RESERVED_PROFILE_SEGMENTS.has(match[1].toLowerCase())) return "";
 
@@ -137,7 +141,7 @@
   }
 
   function isViewerProfileUrl(url) {
-    return Boolean(url && isViewerHost(url.hostname) && isProfilePath(url.pathname));
+    return Boolean(url && isViewerHost(url.hostname) && viewerProfileUsernameFromPath(url.pathname));
   }
 
   function sameViewerOriginUrl(url) {
@@ -164,18 +168,8 @@
     if (!info) return [];
 
     const urls = [];
-    const profileOwner = info.owner || currentViewerProfileUsername();
-    const kinds = [info.kind, ...["p", "reel", "tv"].filter((kind) => kind !== info.kind)];
-
-    for (const kind of kinds) {
-      if (profileOwner) {
-        addUniqueUrl(urls, viewerPostUrl(profileOwner, kind, info.code));
-      }
-
-      addUniqueUrl(urls, viewerPostUrl("", kind, info.code));
-    }
-
     addUniqueUrl(urls, sameViewerOriginUrl(url));
+    addUniqueUrl(urls, viewerPostUrl("", info.kind, info.code));
     return urls;
   }
 
@@ -249,8 +243,12 @@
     const username = profileMatch[1];
     if (RESERVED_PROFILE_SEGMENTS.has(username.toLowerCase())) return null;
 
-    const tab = profileMatch[2] ? `/${profileMatch[2]}` : "";
-    return `${VIEWER_ORIGIN}/${cleanPathPart(username)}${tab}/`;
+    const tab = profileMatch[2];
+    if (tab === "reels" || tab === "tagged") {
+      return `${VIEWER_ORIGIN}/${tab}/${cleanPathPart(username)}/`;
+    }
+
+    return `${VIEWER_ORIGIN}/${cleanPathPart(username)}/`;
   }
 
   function redirectInstagramToViewer() {
@@ -356,6 +354,28 @@
         margin: 0 !important;
         min-height: 0 !important;
         padding: 0 !important;
+      }
+
+      html[data-igiv-viewer-page="true"] .page-user > .block-sulvo,
+      html[data-igiv-viewer-page="true"] .page-user > .block-money,
+      html[data-igiv-viewer-page="true"] .page-user > .share-to,
+      html[data-igiv-viewer-page="true"] .page-user > .download-wrap {
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+        padding: 0 !important;
+      }
+
+      html[data-igiv-viewer-page="true"] .page-user > .items {
+        margin-top: 0 !important;
+        position: static !important;
+        transform: none !important;
+      }
+
+      html[data-igiv-viewer-page="true"] .page-user > .tabs {
+        margin-bottom: 0 !important;
       }
 
       html[data-igiv-viewer-page="true"] [data-igiv-hidden-spacer="true"] {
@@ -706,6 +726,24 @@
       title.includes("content not found") ||
       text.includes("content not found") ||
       text.includes("content has been deleted")
+    );
+  }
+
+  function isCloudflareChallengeFrame(frameDocument) {
+    if (!frameDocument || !frameDocument.documentElement) return false;
+
+    const title = (frameDocument.title || "").toLowerCase();
+    const text = (frameDocument.body ? frameDocument.body.innerText || "" : "")
+      .replace(/\s+/g, " ")
+      .toLowerCase();
+
+    return Boolean(
+      frameDocument.querySelector(
+        "#cf-wrapper, #challenge-running, [id^='cf-chl-'], script[src*='/cdn-cgi/challenge-platform/']"
+      ) ||
+        title.includes("just a moment") ||
+        text.includes("verifying you are human") ||
+        text.includes("performing security verification")
     );
   }
 
@@ -1165,6 +1203,11 @@
     try {
       const frameDocument = activeFrame.contentDocument;
 
+      if (activeFrame.dataset.igivFallback !== "true" && isCloudflareChallengeFrame(frameDocument)) {
+        if (modal) modal.dataset.loading = "false";
+        return;
+      }
+
       if (activeFrame.dataset.igivFallback !== "true" && frameDocument && isContentNotFoundFrame(frameDocument)) {
         tryNextPostCandidate();
         return;
@@ -1380,6 +1423,12 @@
   function installViewerModal() {
     document.addEventListener("click", handleViewerClick, true);
     document.addEventListener("keydown", handleKeydown, true);
+
+    if (isViewerProfileUrl(parseUrl(window.location.href))) {
+      document.documentElement.dataset.igivViewerPage = "true";
+      ensureStyles();
+    }
+
     console.info(`${SCRIPT_NAME}: Imginn popup mode is active.`);
   }
 

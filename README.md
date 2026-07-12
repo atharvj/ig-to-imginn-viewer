@@ -8,8 +8,8 @@ Tampermonkey userscript that leaves Instagram alone when you are logged in, but 
 - Redirects public Instagram profile/post/reel URLs to Imginn when logged out.
 - Handles Instagram login redirect URLs with `next=` by sending the public target to Imginn.
 - Opens Imginn post/reel links in an in-page popup.
-- Tries multiple Imginn post URL shapes when a post detail page is flaky.
-- Cleans up common Imginn spacing, share rows, and popup chrome.
+- Uses a single canonical fallback for flaky Imginn post detail links instead of repeatedly requesting unrelated URL variants.
+- Removes Imginn's variable-height profile ad slots and share/download rows without repositioning the profile or post grid.
 
 ## Install
 
