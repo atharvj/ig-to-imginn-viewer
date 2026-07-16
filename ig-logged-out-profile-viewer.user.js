@@ -3,7 +3,7 @@
 // @namespace    https://github.com/atharvj/ig-logged-out-profile-viewer
 // @version      0.5.1
 // @description  Opens public Instagram links in Imginn only when logged out, and shows Imginn posts in a popup without losing your place.
-// @author       Atharv Joshi
+// @author       Intellectual07
 // @license      MIT
 // @match        https://www.instagram.com/*
 // @match        https://instagram.com/*
